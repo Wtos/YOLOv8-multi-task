@@ -131,13 +131,11 @@ def process_video_with_distance(
                 else:
                     base_name = 'object'
 
-                # 启发式判断车型（基于bbox大小）- 针对道路场景优化
-                # 只检测car和truck，过滤掉小目标（person/bicycle）
-                if bbox_area < 3000:  # 太小的目标，跳过（过滤person/bicycle）
-                    continue
-                elif bbox_area > 30000:  # 大型车辆
+                # 启发式判断车型（基于bbox大小）
+                # 所有检测物体分为car或truck
+                if bbox_area > 30000:  # 大型车辆
                     class_name = 'truck'
-                else:  # 中小型车辆，默认为car
+                else:  # 所有其他物体都视为car
                     class_name = 'car'
 
                 # 估算距离
