@@ -93,12 +93,15 @@ def process_video_with_distance(
         results = model(frame, conf=conf_threshold, verbose=False)
 
         # 处理检测结果
-        for result in results:
-            boxes = result.boxes
+        # 多任务模型返回的是列表，第一个元素是检测结果
+        if isinstance(results, list) and len(results) > 0:
+            # 检测结果通常在第一个位置
+            det_result = results[0] if not isinstance(results[0], list) else results[0][0]
+            boxes = det_result.boxes if hasattr(det_result, 'boxes') else None
+        else:
+            boxes = None
 
-            if boxes is None or len(boxes) == 0:
-                continue
-
+        if boxes is not None and len(boxes) > 0:
             for box in boxes:
                 # 获取检测框信息
                 x1, y1, x2, y2 = map(int, box.xyxy[0].cpu().numpy())
