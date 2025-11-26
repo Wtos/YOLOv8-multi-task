@@ -15,14 +15,17 @@ def main():
     print("=" * 60 + "\n")
 
     # 配置参数
-    # ========== 请修改以下路径 ==========
-    MODEL_PATH = "models/best.pt"  # 预训练模型路径
-    SOURCE = "path/to/your/images"  # 输入图片或视频路径
-    # ===================================
+    # ========== 路径配置 ==========
+    # 模型路径：下载模型后放到这个位置
+    MODEL_PATH = "/home/chengpeng/project/cuda_acceleration/chapter7-deploy-yolo-detection/YOLOv8-multi-task/models/best.pt"
+
+    # 输入路径：你的视频/图片文件夹
+    SOURCE = "/home/chengpeng/project/cuda_acceleration/chapter7-deploy-yolo-detection/ultralytics/ultralytics/assets"
+    # =============================
 
     # 高级参数（可选修改）
     IMGSZ = (384, 672)      # 图像尺寸 (官方推荐)
-    DEVICE = 0              # GPU设备 (0, 1, 2...) 或 'cpu'
+    DEVICE = 'cpu'          # GPU设备 (0, 1, 2...) 或 'cpu' - 根据你的硬件修改
     CONF = 0.25             # 置信度阈值
     IOU = 0.45              # NMS IOU阈值
     SAVE = True             # 保存结果
