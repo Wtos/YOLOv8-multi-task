@@ -108,8 +108,27 @@ def process_video_with_distance(
                 conf = float(box.conf[0])
                 cls = int(box.cls[0])
 
-                # 获取类别名（如果是single_cls，所有都是同一个类）
-                class_name = model.names[cls] if hasattr(model, 'names') else 'vehicle'
+                # 获取类别名
+                # 对于single_cls=True的模型，所有物体可能都被标记为同一类
+                # 根据bbox大小启发式判断车辆类型
+                bbox_width = x2 - x1
+                bbox_height = y2 - y1
+                bbox_area = bbox_width * bbox_height
+
+                if hasattr(model, 'names') and model.names:
+                    base_name = model.names[cls]
+                else:
+                    base_name = 'object'
+
+                # 启发式判断车型（基于bbox大小）
+                if bbox_area > 50000:  # 大型车辆
+                    class_name = 'truck' if bbox_width / bbox_height < 1.8 else 'bus'
+                elif bbox_area > 20000:  # 中型车辆
+                    class_name = 'car'
+                elif bbox_area > 5000:  # 小型目标
+                    class_name = 'person' if bbox_height > bbox_width else 'bicycle'
+                else:
+                    class_name = base_name
 
                 # 估算距离
                 bbox = [x1, y1, x2, y2]
@@ -160,13 +179,20 @@ def process_video_with_distance(
                     thickness
                 )
 
-                # 绘制中心点到图像中心的连线（可选）
-                center_x, center_y = dist_info['bbox_center']
-                img_center_x, img_center_y = width // 2, height // 2
+                # 绘制检测框底部中点（车辆接地位置）
+                bottom_center_x = (x1 + x2) // 2
+                bottom_center_y = y2  # 检测框底部
+
+                # 标记接地点
+                cv2.circle(frame, (bottom_center_x, bottom_center_y), 5, (0, 255, 0), -1)
+
+                # 从接地点到图像底部中心的连线（表示距离）
+                img_bottom_center_x = width // 2
+                img_bottom_y = height
                 cv2.line(
                     frame,
-                    (int(center_x), int(center_y)),
-                    (img_center_x, img_center_y),
+                    (bottom_center_x, bottom_center_y),
+                    (img_bottom_center_x, img_bottom_y),
                     (0, 255, 0),
                     1
                 )
