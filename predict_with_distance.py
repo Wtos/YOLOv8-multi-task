@@ -7,7 +7,6 @@
 
 import cv2
 import numpy as np
-import torch
 from pathlib import Path
 from ultralytics import YOLO
 from distance_estimator import DistanceEstimator
@@ -90,56 +89,26 @@ def process_video_with_distance(
 
         frame_count += 1
 
-        # 运行检测
-        results = model(frame, conf=conf_threshold, verbose=False)
+        # 运行检测（使用predict方法以获得完整的可视化效果）
+        results = model.predict(
+            source=frame,
+            conf=conf_threshold,
+            verbose=False,
+            save=False,
+            stream=False
+        )
 
-        # 处理分割结果（车道线和可行驶区域）
-        # 多任务模型返回: [检测结果, 分割mask1, 分割mask2]
+        # 获取已渲染的图像（包含车道线和分割结果）
+        if hasattr(model.predictor, 'plotted_img') and model.predictor.plotted_img is not None:
+            # 使用已经渲染好的图像（包含分割结果）
+            plotted_list = model.predictor.plotted_img
+            if isinstance(plotted_list, list) and len(plotted_list) > 0:
+                frame = plotted_list[0].copy()  # 使用渲染后的图像
+
+        # 处理检测结果（添加距离信息）
         if isinstance(results, list) and len(results) > 0:
-            # 先处理分割结果作为底层
-            if len(results) >= 3:
-                try:
-                    # 获取分割masks
-                    mask1 = results[1][0] if isinstance(results[1], list) else results[1]
-                    mask2 = results[2][0] if isinstance(results[2], list) else results[2]
-
-                    # 转换为numpy数组
-                    if torch.is_tensor(mask1):
-                        mask1_np = mask1.cpu().numpy().astype(np.uint8)
-                    else:
-                        mask1_np = np.array(mask1).astype(np.uint8)
-
-                    if torch.is_tensor(mask2):
-                        mask2_np = mask2.cpu().numpy().astype(np.uint8)
-                    else:
-                        mask2_np = np.array(mask2).astype(np.uint8)
-
-                    # Resize masks to match frame size if needed
-                    if mask1_np.shape[:2] != (height, width):
-                        mask1_np = cv2.resize(mask1_np, (width, height), interpolation=cv2.INTER_NEAREST)
-                    if mask2_np.shape[:2] != (height, width):
-                        mask2_np = cv2.resize(mask2_np, (width, height), interpolation=cv2.INTER_NEAREST)
-
-                    # 创建彩色mask overlay
-                    # mask1: 绿色 (可行驶区域)
-                    # mask2: 红色 (车道线)
-                    color_mask1 = np.zeros_like(frame)
-                    color_mask1[mask1_np > 0] = [0, 255, 0]  # 绿色
-
-                    color_mask2 = np.zeros_like(frame)
-                    color_mask2[mask2_np > 0] = [255, 0, 0]  # 红色
-
-                    # 叠加到原图上（半透明）
-                    alpha = 0.3
-                    frame = cv2.addWeighted(frame, 1, color_mask1, alpha, 0)
-                    frame = cv2.addWeighted(frame, 1, color_mask2, alpha, 0)
-                except Exception as e:
-                    # 如果分割处理失败，继续处理检测
-                    pass
-
-            # 处理检测结果
-            det_result = results[0] if not isinstance(results[0], list) else results[0][0]
-            boxes = det_result.boxes if hasattr(det_result, 'boxes') else None
+            result = results[0]
+            boxes = result.boxes if hasattr(result, 'boxes') else None
         else:
             boxes = None
 
@@ -163,68 +132,59 @@ def process_video_with_distance(
                     base_name = 'object'
 
                 # 启发式判断车型（基于bbox大小）- 针对道路场景优化
-                # 主要区分car和truck
-                if bbox_area > 30000:  # 大型车辆 - 调整阈值
+                # 只检测car和truck，过滤掉小目标（person/bicycle）
+                if bbox_area < 3000:  # 太小的目标，跳过（过滤person/bicycle）
+                    continue
+                elif bbox_area > 30000:  # 大型车辆
                     class_name = 'truck'
-                elif bbox_area > 8000:  # 普通轿车 - 降低阈值以匹配更多car
+                else:  # 中小型车辆，默认为car
                     class_name = 'car'
-                elif bbox_area > 3000:  # 小型目标
-                    class_name = 'person' if bbox_height > bbox_width else 'bicycle'
-                else:
-                    class_name = base_name
 
                 # 估算距离
                 bbox = [x1, y1, x2, y2]
                 dist_info = estimator.get_distance_info(bbox, class_name)
 
-                # 绘制检测框
-                color = (0, 255, 255)  # 黄色
-                cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
-
-                # 准备标签文本
-                labels = []
-                labels.append(f"{class_name} {conf:.2f}")
-
+                # 只添加距离信息（检测框已经由plotted_img绘制）
                 if show_real_distance:
-                    labels.append(f"Dist: {dist_info['real_distance']:.1f}m")
+                    # 在检测框下方显示距离
+                    distance_text = f"Dist: {dist_info['real_distance']:.1f}m"
 
-                if show_pixel_distance:
-                    labels.append(f"({dist_info['pixel_distance']:.0f}px)")
+                    font = cv2.FONT_HERSHEY_SIMPLEX
+                    font_scale = 0.7
+                    thickness = 2
 
-                # 绘制标签
-                label_text = " | ".join(labels)
+                    # 计算文本大小
+                    (text_width, text_height), baseline = cv2.getTextSize(
+                        distance_text, font, font_scale, thickness
+                    )
 
-                # 计算文本大小
-                font = cv2.FONT_HERSHEY_SIMPLEX
-                font_scale = 0.6
-                thickness = 2
-                (text_width, text_height), baseline = cv2.getTextSize(
-                    label_text, font, font_scale, thickness
-                )
+                    # 在检测框底部下方绘制距离
+                    text_x = x1
+                    text_y = y2 + text_height + 10
 
-                # 绘制文本背景
-                cv2.rectangle(
-                    frame,
-                    (x1, y1 - text_height - baseline - 5),
-                    (x1 + text_width, y1),
-                    color,
-                    -1
-                )
+                    # 绘制文本背景
+                    cv2.rectangle(
+                        frame,
+                        (text_x, text_y - text_height - 5),
+                        (text_x + text_width + 10, text_y + baseline),
+                        (0, 255, 0),  # 绿色背景
+                        -1
+                    )
 
-                # 绘制文本
-                cv2.putText(
-                    frame,
-                    label_text,
-                    (x1, y1 - baseline - 5),
-                    font,
-                    font_scale,
-                    (0, 0, 0),  # 黑色文字
-                    thickness
-                )
+                    # 绘制距离文本
+                    cv2.putText(
+                        frame,
+                        distance_text,
+                        (text_x + 5, text_y - 5),
+                        font,
+                        font_scale,
+                        (0, 0, 0),  # 黑色文字
+                        thickness
+                    )
 
-                # 标记车辆底部中点（接地位置）- 用于距离参考
+                # 标记车辆底部中点（接地位置）
                 bottom_center_x = (x1 + x2) // 2
-                bottom_center_y = y2  # 检测框底部
+                bottom_center_y = y2
                 cv2.circle(frame, (bottom_center_x, bottom_center_y), 4, (0, 255, 0), -1)
 
         # 写入帧
