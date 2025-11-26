@@ -369,6 +369,27 @@ class BasePredictor:
 
 
         else:  # 'video' or 'stream'
+            # Process video frame with masks
+            im0 = im0_list[0].copy()  # Get the current frame
+
+            # Convert tensor to ndarray and remove the first dimension
+            mask1 = im0_list[1][0].to(torch.uint8).cpu().numpy()
+            mask2 = im0_list[2][0].to(torch.uint8).cpu().numpy()
+
+            # Convert mask to RGB
+            color_mask1 = np.stack([mask1 * 0, mask1 * 255, mask1 * 0], axis=-1)
+            color_mask2 = np.stack([mask2 * 255, mask2 * 0, mask2 * 0], axis=-1)
+
+            alpha = 0.5  # transparency factor
+
+            # Overlay masks on im0 with transparency
+            im0[np.any(color_mask1 != [0, 0, 0], axis=-1)] = (1 - alpha) * im0[
+                np.any(color_mask1 != [0, 0, 0], axis=-1)] + alpha * color_mask1[
+                                                                 np.any(color_mask1 != [0, 0, 0], axis=-1)]
+            im0[np.any(color_mask2 != [0, 0, 0], axis=-1)] = (1 - alpha) * im0[
+                np.any(color_mask2 != [0, 0, 0], axis=-1)] + alpha * color_mask2[
+                                                                 np.any(color_mask2 != [0, 0, 0], axis=-1)]
+
             if self.vid_path[idx] != save_path:  # new video
                 self.vid_path[idx] = save_path
                 if isinstance(self.vid_writer[idx], cv2.VideoWriter):
